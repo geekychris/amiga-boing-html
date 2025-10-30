@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Amiga Boing Ball Demo</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+        }
+        
+        canvas {
+            border: 2px solid #333;
+            background: linear-gradient(45deg, #444 25%, transparent 25%), 
+                        linear-gradient(-45deg, #444 25%, transparent 25%), 
+                        linear-gradient(45deg, transparent 75%, #444 75%), 
+                        linear-gradient(-45deg, transparent 75%, #444 75%);
+            background-size: 40px 40px;
+            background-position: 0 0, 0 20px, 20px -20px, -20px 0px;
+        }
+        
+        .controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+        }
+        
+        button {
+            background: #333;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+        
+        button:hover {
+            background: #555;
+        }
+        
+        .info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: #ccc;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <button onclick="toggleAnimation()">Start/Stop</button>
+        <button onclick="toggleSound()">Sound On/Off</button>
+        <button onclick="resetBall()">Reset</button>
+    </div>
+    
+    <canvas id="canvas" width="800" height="600"></canvas>
+    
+    <div class="info">
+        Classic Amiga Boing Ball Demo - Use controls to start/stop animation and toggle sound
+    </div>
+
+    <script>
+        class BoingBall {
+            constructor() {
+                this.canvas = document.getElementById('canvas');
+                this.ctx = this.canvas.getContext('2d');
+                
+                // Ball properties
+                this.x = 100;
+                this.y = 100;
+                this.vx = 6;
+                this.vy = 4;
+                this.radius = 60;
+                this.gravity = 0.4;
+                this.bounce = 0.95;
+                this.friction = 0.998;
+                
+                // Animation
+                this.animationId = null;
+                this.isRunning = false;
+                
+                // Sound
+                this.audioContext = null;
+                this.soundEnabled = true;
+                this.initAudio();
+                
+                // Ball rotation for 3D effect
+                this.rotation = 0;
+                this.rotationSpeed = 0.02;
+                
+                this.draw();
+            }
+            
+            initAudio() {
+                try {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                } catch (e) {
+                    console.log('Web Audio API not supported');
+                    this.soundEnabled = false;
+                }
+            }
+            
+            playBounceSound() {
+                if (!this.soundEnabled || !this.audioContext) return;
+                
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.audioContext.destination);
+                
+                // Create a "boing" sound with frequency sweep
+                oscillator.frequency.setValueAtTime(400, this.audioContext.currentTime);
+                oscillator.frequency.exponentialRampToValueAtTime(100, this.audioContext.currentTime + 0.3);
+                
+                gainNode.gain.setValueAtTime(0.3, this.audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, this.audioContext.currentTime + 0.3);
+                
+                oscillator.start();
+                oscillator.stop(this.audioContext.currentTime + 0.3);
+            }
+            
+            drawCheckeredSphere() {
+                const ctx = this.ctx;
+                const centerX = this.x;
+                const centerY = this.y;
+                const radius = this.radius;
+                
+                // Create gradient for 3D sphere effect
+                const gradient = ctx.createRadialGradient(
+                    centerX - radius/3, centerY - radius/3, 0,
+                    centerX, centerY, radius
+                );
+                gradient.addColorStop(0, '#ffffff');
+                gradient.addColorStop(1, '#666666');
+                
+                // Draw shadow
+                ctx.save();
+                ctx.globalAlpha = 0.3;
+                ctx.fillStyle = '#000';
+                const shadowOffset = 10;
+                ctx.beginPath();
+                ctx.ellipse(centerX + shadowOffset, this.canvas.height - 20, 
+                           radius * 0.8, radius * 0.3, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+                
+                // Draw the main sphere
+                ctx.save();
+                
+                // Create clipping circle for the sphere
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+                ctx.clip();
+                
+                // Draw checkered pattern
+                const segments = 12;
+                const rings = 8;
+                
+                for (let i = 0; i < segments; i++) {
+                    for (let j = 0; j < rings; j++) {
+                        const isRed = (i + j) % 2 === 0;
+                        
+                        ctx.fillStyle = isRed ? '#ff0000' : '#ffffff';
+                        
+                        const startAngle = (i * Math.PI * 2) / segments + this.rotation;
+                        const endAngle = ((i + 1) * Math.PI * 2) / segments + this.rotation;
+                        const innerRadius = (j * radius) / rings;
+                        const outerRadius = ((j + 1) * radius) / rings;
+                        
+                        // Draw segment
+                        ctx.beginPath();
+                        ctx.arc(centerX, centerY, outerRadius, startAngle, endAngle);
+                        ctx.arc(centerX, centerY, innerRadius, endAngle, startAngle, true);
+                        ctx.closePath();
+                        ctx.fill();
+                    }
+                }
+                
+                // Add sphere shading overlay
+                ctx.globalCompositeOperation = 'multiply';
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.restore();
+                
+                // Add specular highlight
+                ctx.save();
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+                ctx.beginPath();
+                ctx.arc(centerX - radius/3, centerY - radius/3, radius/4, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+            
+            update() {
+                // Apply gravity
+                this.vy += this.gravity;
+                
+                // Update position
+                this.x += this.vx;
+                this.y += this.vy;
+                
+                // Apply minimal friction
+                this.vx *= this.friction;
+                this.vy *= this.friction;
+                
+                // Ball rotation based on horizontal movement
+                this.rotation += this.vx * this.rotationSpeed;
+                
+                // Bounce off walls
+                if (this.x + this.radius > this.canvas.width) {
+                    this.x = this.canvas.width - this.radius;
+                    this.vx *= -this.bounce;
+                    // Add some energy back to keep it lively
+                    if (Math.abs(this.vx) < 2) this.vx = this.vx < 0 ? -3 : 3;
+                    this.playBounceSound();
+                }
+                
+                if (this.x - this.radius < 0) {
+                    this.x = this.radius;
+                    this.vx *= -this.bounce;
+                    // Add some energy back to keep it lively
+                    if (Math.abs(this.vx) < 2) this.vx = this.vx < 0 ? -3 : 3;
+                    this.playBounceSound();
+                }
+                
+                // Bounce off floor and ceiling
+                if (this.y + this.radius > this.canvas.height) {
+                    this.y = this.canvas.height - this.radius;
+                    this.vy *= -this.bounce;
+                    // Add some energy back to keep it bouncing
+                    if (Math.abs(this.vy) < 3) this.vy = this.vy < 0 ? -4 : 4;
+                    this.playBounceSound();
+                }
+                
+                if (this.y - this.radius < 0) {
+                    this.y = this.radius;
+                    this.vy *= -this.bounce;
+                    // Add some energy back to keep it bouncing
+                    if (Math.abs(this.vy) < 3) this.vy = this.vy < 0 ? -4 : 4;
+                    this.playBounceSound();
+                }
+                
+                // Ensure minimum velocities to keep the ball moving
+                if (Math.abs(this.vx) < 1) {
+                    this.vx = this.vx < 0 ? -2 : 2;
+                }
+                if (Math.abs(this.vy) < 1) {
+                    this.vy = this.vy < 0 ? -2 : 2;
+                }
+            }
+            
+            draw() {
+                // Clear canvas with checkered background pattern (handled by CSS)
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                // Draw the checkered ball
+                this.drawCheckeredSphere();
+            }
+            
+            animate() {
+                this.update();
+                this.draw();
+                
+                if (this.isRunning) {
+                    this.animationId = requestAnimationFrame(() => this.animate());
+                }
+            }
+            
+            start() {
+                if (!this.isRunning) {
+                    this.isRunning = true;
+                    this.animate();
+                }
+            }
+            
+            stop() {
+                this.isRunning = false;
+                if (this.animationId) {
+                    cancelAnimationFrame(this.animationId);
+                }
+            }
+            
+            reset() {
+                this.x = 100;
+                this.y = 100;
+                this.vx = 4;
+                this.vy = 2;
+                this.rotation = 0;
+                this.draw();
+            }
+            
+            toggleSound() {
+                this.soundEnabled = !this.soundEnabled;
+                return this.soundEnabled;
+            }
+        }
+        
+        // Initialize the demo
+        const boingBall = new BoingBall();
+        
+        // Control functions
+        function toggleAnimation() {
+            if (boingBall.isRunning) {
+                boingBall.stop();
+            } else {
+                // Resume audio context if needed (browser policy)
+                if (boingBall.audioContext && boingBall.audioContext.state === 'suspended') {
+                    boingBall.audioContext.resume();
+                }
+                boingBall.start();
+            }
+        }
+        
+        function toggleSound() {
+            const enabled = boingBall.toggleSound();
+            console.log('Sound ' + (enabled ? 'enabled' : 'disabled'));
+        }
+        
+        function resetBall() {
+            boingBall.reset();
+        }
+        
+        // Add keyboard controls
+        document.addEventListener('keydown', (e) => {
+            switch(e.code) {
+                case 'Space':
+                    e.preventDefault();
+                    toggleAnimation();
+                    break;
+                case 'KeyS':
+                    toggleSound();
+                    break;
+                case 'KeyR':
+                    resetBall();
+                    break;
+            }
+        });
+        
+        // Auto-start after a short delay
+        setTimeout(() => {
+            toggleAnimation();
+        }, 1000);
+    </script>
+</body>
+</html>
